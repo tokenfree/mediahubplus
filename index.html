@@ -109,14 +109,14 @@
         background-size: cover;
         background-position: center;
         filter: blur(25px) brightness(0.85);
-        opacity: 0;  /* Start with 0 opacity */
+        opacity: 0;
         transform: translate(-50%, -50%) scale(1.2);
-        will-change: background-image, opacity;  /* Optimize for these changes */
+        will-change: background-image, opacity;
     }
     
     .full-screen .background-blur.visible {
         opacity: 0.9;
-        transition: opacity 0.15s ease-out;  /* Only transition opacity */
+        transition: opacity 0.15s ease-out;
     }
     .full-screen img, .full-screen video {
         max-width: 90%;
@@ -182,7 +182,6 @@
     .right-arrow::before {
         transform: translate(-65%, -50%) rotate(45deg);
     }
-    /* The arrows themselves are the hover areas */
     .arrow {
         position: absolute;
         top: 50%;
@@ -197,9 +196,8 @@
         transition: opacity 0.15s ease-in-out, transform 0.2s ease-in-out;
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
-        opacity: 0; /* Hidden by default */
+        opacity: 0;
     }
-    /* Show arrows only when hovering directly over them */
     .arrow:hover {
         opacity: 1;
         background: rgba(255, 255, 255, 0.95);
@@ -264,7 +262,6 @@
     .image-list::-webkit-scrollbar-thumb:hover {
         background-color: #0056b3; 
     }
-    /* New styles for time feature */
     .controls-container {
         position: absolute;
         bottom: 20px;
@@ -360,6 +357,35 @@
         margin-bottom: 8px;
         padding-left: 4px;
     }
+    
+    /* Loading progress indicator */
+    .upload-progress {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 20px 40px;
+        border-radius: 10px;
+        z-index: 1000;
+        display: none;
+        text-align: center;
+    }
+    .progress-bar {
+        width: 300px;
+        height: 6px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 3px;
+        margin: 10px 0;
+    }
+    .progress-fill {
+        height: 100%;
+        background: #007bff;
+        border-radius: 3px;
+        width: 0%;
+        transition: width 0.3s ease;
+    }
 </style>
 </head>
 <body>
@@ -370,7 +396,6 @@
         <div class="upload-button" onclick="document.getElementById('file-input').click()">+</div>
         <div class="blur-toggle" title="Toggle Background Blur"></div>
     </div>
-    <!-- Added controls container for time feature -->
     <div class="controls-container">
         <button class="slideshow-btn">Start Slideshow</button>
         <div class="time-picker-container">
@@ -392,6 +417,15 @@
         </div>
     </div>
 </div>
+
+<div class="upload-progress">
+    <div>Processing files...</div>
+    <div class="progress-bar">
+        <div class="progress-fill"></div>
+    </div>
+    <div class="progress-text">0 / 0</div>
+</div>
+
 <input type="file" id="file-input" multiple accept="image/*,video/*">
 <div class="full-screen">
     <div class="background-blur"></div>
@@ -401,7 +435,6 @@
     <div class="index"></div>
     <div class="exit-button"></div>
     
-    <!-- Added hover areas for arrows -->
     <div class="arrow left-arrow"></div>
     <div class="arrow right-arrow"></div>
 </div>
@@ -413,30 +446,75 @@
 $(document).ready(function() {
     $('.full-screen').hide();
     $('.full-screen .index').hide();
-    var media = [];
+    
+    // Changed to store file objects instead of data URLs to save memory
+    var mediaFiles = [];
+    var mediaDataURLs = {};  // Cache for loaded data URLs
     var fileNames = [];
     var fileTypes = [];
     var currentIndex = 0;
     var blurEnabled = false;
-    var preloadedImages = {};  // Cache for preloaded images
+    var preloadedImages = {};
     var currentBlurIndex = 0;
     
-    // New variables for slideshow feature
     let slideshowInterval;
     let isPlaying = false;
     const slideshowBtn = $('.slideshow-btn');
 
-    function preloadAdjacentImages(index) {
-        if (!blurEnabled) return;
+    // Improved memory management functions
+    function createDataURL(file, callback) {
+        // Check cache first
+        const cacheKey = file.name + file.size + file.lastModified;
+        if (mediaDataURLs[cacheKey]) {
+            callback(mediaDataURLs[cacheKey]);
+            return;
+        }
         
-        const prevIndex = (index - 1 + media.length) % media.length;
-        const nextIndex = (index + 1) % media.length;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            mediaDataURLs[cacheKey] = e.target.result;
+            callback(e.target.result);
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    function getCurrentMediaURL(callback) {
+        const file = mediaFiles[currentIndex];
+        const cacheKey = file.name + file.size + file.lastModified;
+        
+        if (mediaDataURLs[cacheKey]) {
+            callback(mediaDataURLs[cacheKey]);
+        } else {
+            createDataURL(file, callback);
+        }
+    }
+    
+    // Clean up old cached URLs to prevent memory leaks
+    function cleanupCache() {
+        const cacheKeys = Object.keys(mediaDataURLs);
+        if (cacheKeys.length > 50) { // Keep only 50 most recent
+            // Remove oldest entries
+            const toRemove = cacheKeys.slice(0, cacheKeys.length - 30);
+            toRemove.forEach(key => {
+                delete mediaDataURLs[key];
+            });
+        }
+    }
+
+    function preloadAdjacentImages(index) {
+        if (!blurEnabled || mediaFiles.length === 0) return;
+        
+        const prevIndex = (index - 1 + mediaFiles.length) % mediaFiles.length;
+        const nextIndex = (index + 1) % mediaFiles.length;
         
         [prevIndex, nextIndex].forEach(idx => {
             if (fileTypes[idx]?.startsWith('image') && !preloadedImages[idx]) {
-                const img = new Image();
-                img.src = media[idx];
-                preloadedImages[idx] = img;
+                const file = mediaFiles[idx];
+                createDataURL(file, function(dataURL) {
+                    const img = new Image();
+                    img.src = dataURL;
+                    preloadedImages[idx] = img;
+                });
             }
         });
     }
@@ -448,7 +526,6 @@ $(document).ready(function() {
         const $blur = $('.full-screen .background-blur');
         if (blurEnabled) {
             $blur.css('display', 'block');
-            // Preload current and adjacent images
             preloadAdjacentImages(currentIndex);
         } else {
             $blur.removeClass('visible');
@@ -457,61 +534,65 @@ $(document).ready(function() {
     });
 
     function updateMedia() {
-        var currentMedia = media[currentIndex];
-        var currentType = fileTypes[currentIndex];
+        if (mediaFiles.length === 0) return;
         
-        if (currentType.startsWith('image')) {
-            $('.full-screen img').show().attr('src', currentMedia);
-            $('.full-screen video').hide()[0].pause();
+        getCurrentMediaURL(function(currentMedia) {
+            var currentType = fileTypes[currentIndex];
             
-            if (blurEnabled) {
-                const $blurs = $('.full-screen .background-blur');
-                const nextBlurIndex = 1 - currentBlurIndex;
-                $blurs.eq(nextBlurIndex).css({
-                    'background-image': `url(${currentMedia})`,
-                    'display': 'block',
-                    'opacity': 0.9
-                });
-                $blurs.eq(currentBlurIndex).css('opacity', 0);
-                currentBlurIndex = nextBlurIndex;
-                preloadAdjacentImages(currentIndex);
+            if (currentType.startsWith('image')) {
+                $('.full-screen img').show().attr('src', currentMedia);
+                $('.full-screen video').hide()[0].pause();
+                
+                if (blurEnabled) {
+                    const $blurs = $('.full-screen .background-blur');
+                    const nextBlurIndex = 1 - currentBlurIndex;
+                    $blurs.eq(nextBlurIndex).css({
+                        'background-image': `url(${currentMedia})`,
+                        'display': 'block',
+                        'opacity': 0.9
+                    });
+                    $blurs.eq(currentBlurIndex).css('opacity', 0);
+                    currentBlurIndex = nextBlurIndex;
+                    preloadAdjacentImages(currentIndex);
+                }
+            } else if (currentType.startsWith('video')) {
+                $('.full-screen img').hide();
+                $('.full-screen video').show().attr('src', currentMedia)[0].play();
+                if (blurEnabled) {
+                    $('.full-screen .background-blur').css({
+                        'display': 'block',
+                        'opacity': 0
+                    });
+                }
             }
-        } else if (currentType.startsWith('video')) {
-            $('.full-screen img').hide();
-            $('.full-screen video').show().attr('src', currentMedia)[0].play();
-            if (blurEnabled) {
-                $('.full-screen .background-blur').css({
-                    'display': 'block',
-                    'opacity': 0
-                });
-            }
-        }
-        
-        $('.full-screen .index').text((currentIndex + 1));
+            
+            $('.full-screen .index').text((currentIndex + 1));
+        });
     }
 
-    function updateThumbnail(mediaUrl, type) {
-        if (type.startsWith('image')) {
-            $('.thumbnail').attr('src', mediaUrl);
-        } else if (type.startsWith('video')) {
-            var video = document.createElement('video');
-            video.src = mediaUrl;
-            video.addEventListener('loadeddata', function() {
-                video.currentTime = 1;
-            });
-            video.addEventListener('seeked', function() {
-                var canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-                $('.thumbnail').attr('src', canvas.toDataURL());
-            });
-        }
+    function updateThumbnail(file, type) {
+        createDataURL(file, function(mediaUrl) {
+            if (type.startsWith('image')) {
+                $('.thumbnail').attr('src', mediaUrl);
+            } else if (type.startsWith('video')) {
+                var video = document.createElement('video');
+                video.src = mediaUrl;
+                video.addEventListener('loadeddata', function() {
+                    video.currentTime = 1;
+                });
+                video.addEventListener('seeked', function() {
+                    var canvas = document.createElement('canvas');
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                    $('.thumbnail').attr('src', canvas.toDataURL());
+                });
+            }
+        });
     }
     
-    // New functions for slideshow feature
     function startSlideshow() {
-        if (media.length <= 1) return;
+        if (mediaFiles.length <= 1) return;
         
         const interval = getTimeValue() * 1000;
         
@@ -523,20 +604,18 @@ $(document).ready(function() {
                 const video = $('.full-screen video')[0];
                 video.onended = function() {
                     if (isPlaying) {
-                        currentIndex = (currentIndex + 1) % media.length;
+                        currentIndex = (currentIndex + 1) % mediaFiles.length;
                         updateMedia();
                         scheduleNext();
                     }
                 };
             } else {
                 slideshowInterval = setTimeout(() => {
-                    currentIndex = (currentIndex + 1) % media.length;
-                    // Only update the visible media if in full-screen mode
+                    currentIndex = (currentIndex + 1) % mediaFiles.length;
                     if ($('.full-screen').is(':visible')) {
                         updateMedia();
                     } else {
-                        // Just update the index if not in full-screen mode
-                        updateThumbnail(media[currentIndex], fileTypes[currentIndex]);
+                        updateThumbnail(mediaFiles[currentIndex], fileTypes[currentIndex]);
                     }
                     scheduleNext();
                 }, interval);
@@ -558,7 +637,6 @@ $(document).ready(function() {
         return parseInt($('.time-option.selected').data('value'));
     }
 
-    // Time picker controls
     $('.time-display').click(function(e) {
         e.stopPropagation();
         $('.time-picker-modal').toggleClass('active');
@@ -585,10 +663,9 @@ $(document).ready(function() {
         }
     });
 
-    // Slideshow controls
     slideshowBtn.click(function() {
         if (!isPlaying) {
-            if (media.length > 1) {
+            if (mediaFiles.length > 1) {
                 isPlaying = true;
                 $(this).text('Stop Slideshow');
                 startSlideshow();
@@ -601,7 +678,7 @@ $(document).ready(function() {
     });
 
     $('.thumbnail').click(function() {
-        if (media.length > 0) {
+        if (mediaFiles.length > 0) {
             updateMedia();
             $('.full-screen').show();
             $('.exit-button, .full-screen .index').show();
@@ -612,18 +689,17 @@ $(document).ready(function() {
     $(document).keydown(function(e) {
         if ($('.full-screen').is(':visible')) {
             if (e.key === 'ArrowRight') {
-                currentIndex = (currentIndex + 1) % media.length;
+                currentIndex = (currentIndex + 1) % mediaFiles.length;
                 updateMedia();
             } else if (e.key === 'ArrowLeft') {
-                currentIndex = (currentIndex - 1 + media.length) % media.length;
+                currentIndex = (currentIndex - 1 + mediaFiles.length) % mediaFiles.length;
                 updateMedia();
             } else if (e.key === 'Escape') {
                 $('.full-screen').hide();
                 $('.full-screen .index').hide();
                 $('.image-container').show();
                 $('.full-screen video')[0].pause();
-                // Don't stop slideshow when exiting to home screen 
-                updateThumbnail(media[currentIndex], fileTypes[currentIndex]);
+                updateThumbnail(mediaFiles[currentIndex], fileTypes[currentIndex]);
                 return;
             }
         }
@@ -631,13 +707,13 @@ $(document).ready(function() {
 
     $('.arrow.left-arrow').click(function(e) {
         e.stopPropagation();
-        currentIndex = (currentIndex - 1 + media.length) % media.length;
+        currentIndex = (currentIndex - 1 + mediaFiles.length) % mediaFiles.length;
         updateMedia();
     });
 
     $('.arrow.right-arrow').click(function(e) {
         e.stopPropagation();
-        currentIndex = (currentIndex + 1) % media.length;
+        currentIndex = (currentIndex + 1) % mediaFiles.length;
         updateMedia();
     });
 
@@ -646,13 +722,12 @@ $(document).ready(function() {
         $('.full-screen .index').hide();
         $('.image-container').show();
         $('.full-screen video')[0].pause();
-        // Don't stop slideshow when exiting to home screen
-        updateThumbnail(media[currentIndex], fileTypes[currentIndex]);
+        updateThumbnail(mediaFiles[currentIndex], fileTypes[currentIndex]);
     });
 
     $('.full-screen .index').click(function() {
         var listHtml = '';
-        for (var i = 0; i < media.length; i++) {
+        for (var i = 0; i < mediaFiles.length; i++) {
             var icon = fileTypes[i].startsWith('video') ? '🎥' : '🖼️';
             listHtml += '<li data-index="' + i + '">' + icon + ' ' + (i + 1) + '. ' + fileNames[i] + '</li>';
         }
@@ -673,22 +748,67 @@ $(document).ready(function() {
         }
     });
 
+    // Improved file processing with batching and progress
     $('#file-input').on('change', function(event) {
-        var files = event.target.files;
-        for (var i = 0; i < files.length; i++) {
-            var reader = new FileReader();
-            reader.onload = (function(file) {
-                return function(e) {
-                    media.push(e.target.result);
-                    fileNames.push(file.name);
-                    fileTypes.push(file.type);
-                    if (media.length === 1) {
-                        updateThumbnail(e.target.result, file.type);
-                    }
-                };
-            })(files[i]);
-            reader.readAsDataURL(files[i]);
+        var files = Array.from(event.target.files);
+        if (files.length === 0) return;
+        
+        // Show progress indicator for large uploads
+        if (files.length > 50) {
+            $('.upload-progress').show();
         }
+        
+        var processed = 0;
+        
+        function updateProgress() {
+            processed++;
+            if (files.length > 50) {
+                const percentage = (processed / files.length) * 100;
+                $('.progress-fill').css('width', percentage + '%');
+                $('.progress-text').text(processed + ' / ' + files.length);
+                
+                if (processed === files.length) {
+                    setTimeout(() => $('.upload-progress').hide(), 500);
+                }
+            }
+            
+            // Update thumbnail when first file is processed
+            if (mediaFiles.length === 1) {
+                updateThumbnail(mediaFiles[0], fileTypes[0]);
+            }
+        }
+        
+        // Process files in smaller batches to prevent memory issues
+        function processBatch(startIndex, batchSize = 10) {
+            const endIndex = Math.min(startIndex + batchSize, files.length);
+            
+            for (let i = startIndex; i < endIndex; i++) {
+                const file = files[i];
+                
+                // Store file object instead of immediately converting to data URL
+                mediaFiles.push(file);
+                fileNames.push(file.name);
+                fileTypes.push(file.type);
+                
+                updateProgress();
+            }
+            
+            // Clean up cache periodically
+            if (processed % 100 === 0) {
+                cleanupCache();
+            }
+            
+            // Process next batch with small delay to prevent blocking
+            if (endIndex < files.length) {
+                setTimeout(() => processBatch(endIndex, batchSize), 10);
+            }
+        }
+        
+        // Start processing
+        processBatch(0);
+        
+        // Reset file input
+        this.value = '';
     });
 });
 </script>
