@@ -40,7 +40,7 @@
         width: 200px;
         height: 200px;
         object-fit: cover;
-        border-radius: 50px;
+        border-radius: 18px;
         cursor: pointer;
         transition: transform 0.3s ease-in-out;
         position: relative;
@@ -121,13 +121,13 @@
     .full-screen img, .full-screen video {
         max-width: 90%;
         max-height: 90%;
-        border-radius: 50px;
+        border-radius: 18px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
         position: relative;
         z-index: 1;
     }
     .full-screen video {
-        border-radius: 20px;
+        border-radius: 18px;
     }
     .full-screen video::-webkit-media-controls-panel {
         position: absolute;
@@ -139,11 +139,16 @@
         position: absolute;
         top: 20px;
         right: 20px;
-        font-size: 1.5em;
-        color: #000;
-        background-color: #f5f5f7;
-        padding: 5px 10px;
-        border-radius: 10px;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        background-color: #f5f5f5;
+        border: 1px solid #d0d0d0;
+        color: #444;
+        padding: 4px 10px;
+        border-radius: 3px;
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.08);
         cursor: pointer;
         z-index: 2;
     }
@@ -225,42 +230,89 @@
     }
     .image-list {
         position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
+        top: 72px;
+        right: 20px;
         background: white;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        max-height: 80vh;
+        border-radius: 0;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        max-height: 60vh;
         overflow-y: auto;
+        min-width: 220px;
         z-index: 3;
+        scrollbar-width: thin;
+        scrollbar-color: #D1D1D6 transparent;
+    }
+    .image-list::-webkit-scrollbar {
+        width: 4px;
+    }
+    .image-list::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .image-list::-webkit-scrollbar-thumb {
+        background-color: #D1D1D6;
+        border-radius: 2px;
+    }
+    .image-list::-webkit-scrollbar-thumb:hover {
+        background-color: #B5B5BD;
+    }
+    .image-list-header {
+        padding: 8px 12px;
+        border-bottom: 1px solid #E0E0E0;
+        background: #F5F5F7;
+        font-weight: 600;
+        font-size: 14px;
+        color: #111;
+        font-style: italic;
     }
     .image-list ul {
         list-style-type: none;
         padding: 0;
+        margin: 0;
     }
     .image-list li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
         cursor: pointer;
-        padding: 10px;
-        border-bottom: 1px solid #eee;
+        border-bottom: 1px solid #E0E0E0;
+        transition: background-color 0.15s;
+    }
+    .image-list li:last-child {
+        border-bottom: none;
     }
     .image-list li:hover {
-        background-color: #f0f0f0;
+        background-color: #F5F5F7;
     }
-    .image-list::-webkit-scrollbar {
-        width: 10px;
+    .image-list li.active {
+        border-top: 2px solid #111;
+        border-bottom: 2px solid #111;
     }
-    .image-list::-webkit-scrollbar-track {
-        background: #f1f1f1; 
+    .image-list li .li-type {
+        font-weight: 600;
+        font-size: 14px;
+        color: #111;
     }
-    .image-list::-webkit-scrollbar-thumb {
-        background-color: #007aff; 
-        border-radius: 10px;
-        border: 3px solid #f1f1f1;
+    .image-list li .li-num {
+        font-size: 14px;
+        color: #111;
     }
-    .image-list::-webkit-scrollbar-thumb:hover {
-        background-color: #0056b3; 
+    .image-list li .li-name {
+        font-size: 14px;
+        color: #111;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .image-list-footer {
+        padding: 8px 12px;
+        border-top: 1px solid #E0E0E0;
+        background: #F5F5F7;
+        font-size: 12px;
+        color: #888;
+        font-style: italic;
+        font-weight: 500;
     }
     .controls-container {
         position: absolute;
@@ -439,7 +491,9 @@
     <div class="arrow right-arrow"></div>
 </div>
 <div class="image-list" style="display: none;">
+    <div class="image-list-header">List</div>
     <ul></ul>
+    <div class="image-list-footer"></div>
 </div>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
@@ -566,7 +620,8 @@ $(document).ready(function() {
                 }
             }
             
-            $('.full-screen .index').text((currentIndex + 1));
+            var padded = String(currentIndex + 1).padStart(2, '0');
+            $('.full-screen .index').text(padded);
         });
     }
 
@@ -728,10 +783,16 @@ $(document).ready(function() {
     $('.full-screen .index').click(function() {
         var listHtml = '';
         for (var i = 0; i < mediaFiles.length; i++) {
-            var icon = fileTypes[i].startsWith('video') ? '🎥' : '🖼️';
-            listHtml += '<li data-index="' + i + '">' + icon + ' ' + (i + 1) + '. ' + fileNames[i] + '</li>';
+            var typeLabel = fileTypes[i].startsWith('video') ? 'Video' : 'Image';
+            var activeClass = i === currentIndex ? ' class="active"' : '';
+            listHtml += '<li data-index="' + i + '"' + activeClass + '>'
+                + '<span class="li-type">' + typeLabel + '</span>'
+                + '<span class="li-num">' + (i + 1) + '.</span>'
+                + '<span class="li-name">' + fileNames[i] + '</span>'
+                + '</li>';
         }
         $('.image-list ul').html(listHtml);
+        $('.image-list-footer').text('Total: ' + mediaFiles.length);
         $('.image-list').show();
     });
 
